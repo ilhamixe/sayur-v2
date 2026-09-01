@@ -1,10 +1,14 @@
+export interface SupplierMapping {
+  mapping_type: 'product' | 'category';
+  ref_id: string;
+}
+
 export interface Supplier {
   id: number;
   name: string;
   phone: string;
-  mapping_type: 'product' | 'category';
-  ref_id: string;
   active: number;
+  mappings: SupplierMapping[];
   created_at: string;
   updated_at: string;
 }

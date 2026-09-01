@@ -15,14 +15,15 @@ import {
   Layers,
 } from 'lucide-react';
 import { CATEGORIES, PRODUCTS } from '../data/products';
-import type { Supplier } from '../types/notify';
+import type { Supplier, SupplierMapping } from '../types/notify';
+
+type FormMapping = { mapping_type: 'product' | 'category'; ref_id: string };
 
 type FormState = {
   id: number | null;
   name: string;
   phone: string;
-  mapping_type: 'product' | 'category';
-  ref_id: string;
+  mappings: FormMapping[];
   active: boolean;
 };
 
@@ -30,16 +31,18 @@ const EMPTY_FORM: FormState = {
   id: null,
   name: '',
   phone: '',
-  mapping_type: 'product',
-  ref_id: PRODUCTS[0]?.id ?? '',
+  mappings: [{ mapping_type: 'product', ref_id: PRODUCTS[0]?.id ?? '' }],
   active: true,
 };
 
-// Kategori 'all' cuma filter tampilan katalog, bukan target supplier.
 const MAPPABLE_CATEGORIES = CATEGORIES.filter((c) => c.id !== 'all');
 
 const PRODUCT_LABEL = new Map(PRODUCTS.map((p) => [p.id, p.name]));
 const CATEGORY_LABEL = new Map(MAPPABLE_CATEGORIES.map((c) => [c.id, c.label]));
+
+function refLabel(type: 'product' | 'category', ref_id: string) {
+  return type === 'product' ? (PRODUCT_LABEL.get(ref_id) ?? ref_id) : (CATEGORY_LABEL.get(ref_id) ?? ref_id);
+}
 
 export default function SupplierManager() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -65,22 +68,12 @@ export default function SupplierManager() {
     }
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
   const flash = useCallback((msg: string) => {
     setNotice(msg);
     setTimeout(() => setNotice(null), 2500);
   }, []);
-
-  const refOptions = useMemo(
-    () =>
-      form.mapping_type === 'product'
-        ? PRODUCTS.map((p) => ({ value: p.id, label: `${p.name} — ${p.categoryLabel}` }))
-        : MAPPABLE_CATEGORIES.map((c) => ({ value: c.id, label: c.label })),
-    [form.mapping_type]
-  );
 
   const openCreate = () => {
     setForm(EMPTY_FORM);
@@ -93,8 +86,9 @@ export default function SupplierManager() {
       id: s.id,
       name: s.name,
       phone: s.phone,
-      mapping_type: s.mapping_type,
-      ref_id: s.ref_id,
+      mappings: s.mappings.length > 0
+        ? s.mappings.map((m) => ({ mapping_type: m.mapping_type, ref_id: m.ref_id }))
+        : [{ mapping_type: 'product', ref_id: PRODUCTS[0]?.id ?? '' }],
       active: s.active === 1,
     });
     setShowForm(true);
@@ -103,14 +97,17 @@ export default function SupplierManager() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (form.mappings.length === 0) {
+      setError('Minimal satu mapping wajib dipilih.');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
       const payload = {
         name: form.name,
         phone: form.phone,
-        mapping_type: form.mapping_type,
-        ref_id: form.ref_id,
+        mappings: form.mappings,
         active: form.active,
       };
       const res = await fetch(form.id ? `/api/suppliers/${form.id}` : '/api/suppliers', {
@@ -141,8 +138,7 @@ export default function SupplierManager() {
         body: JSON.stringify({
           name: s.name,
           phone: s.phone,
-          mapping_type: s.mapping_type,
-          ref_id: s.ref_id,
+          mappings: s.mappings,
           active: s.active !== 1,
         }),
       });
@@ -157,9 +153,7 @@ export default function SupplierManager() {
   };
 
   const remove = async (s: Supplier) => {
-    if (!confirm(`Hapus supplier "${s.name}"? Order berikutnya tidak akan dikirim ke nomor ini.`)) {
-      return;
-    }
+    if (!confirm(`Hapus supplier "${s.name}"? Semua mapping akan dihapus.`)) return;
     setBusy(true);
     setError(null);
     try {
@@ -175,20 +169,56 @@ export default function SupplierManager() {
     }
   };
 
-  const targetLabel = (s: Supplier) =>
-    s.mapping_type === 'product'
-      ? PRODUCT_LABEL.get(s.ref_id) ?? s.ref_id
-      : CATEGORY_LABEL.get(s.ref_id) ?? s.ref_id;
+  // --- Mapping helpers for form ---
+  const addMapping = () => {
+    setForm((f) => ({
+      ...f,
+      mappings: [...f.mappings, { mapping_type: 'product', ref_id: PRODUCTS[0]?.id ?? '' }],
+    }));
+  };
 
-  // Produk yang belum punya supplier langsung maupun lewat kategorinya.
+  const removeMapping = (idx: number) => {
+    setForm((f) => ({
+      ...f,
+      mappings: f.mappings.filter((_, i) => i !== idx),
+    }));
+  };
+
+  const updateMapping = (idx: number, patch: Partial<FormMapping>) => {
+    setForm((f) => ({
+      ...f,
+      mappings: f.mappings.map((m, i) => {
+        if (i !== idx) return m;
+        const next = { ...m, ...patch };
+        // Reset ref_id when switching type
+        if (patch.mapping_type && patch.mapping_type !== m.mapping_type) {
+          next.ref_id = patch.mapping_type === 'product'
+            ? (PRODUCTS[0]?.id ?? '')
+            : (MAPPABLE_CATEGORIES[0]?.id ?? '');
+        }
+        return next;
+      }),
+    }));
+  };
+
+  // Products not yet mapped by any active supplier
   const unmappedProducts = useMemo(() => {
     const active = suppliers.filter((s) => s.active === 1);
-    const byProduct = new Set(active.filter((s) => s.mapping_type === 'product').map((s) => s.ref_id));
-    const byCategory = new Set(
-      active.filter((s) => s.mapping_type === 'category').map((s) => s.ref_id)
-    );
-    return PRODUCTS.filter((p) => !byProduct.has(p.id) && !byCategory.has(p.category));
+    const coveredProducts = new Set<string>();
+    const coveredCategories = new Set<string>();
+    for (const s of active) {
+      for (const m of s.mappings) {
+        if (m.mapping_type === 'product') coveredProducts.add(m.ref_id);
+        else coveredCategories.add(m.ref_id);
+      }
+    }
+    return PRODUCTS.filter((p) => !coveredProducts.has(p.id) && !coveredCategories.has(p.category));
   }, [suppliers]);
+
+  const refOptionsFor = (type: 'product' | 'category') =>
+    type === 'product'
+      ? PRODUCTS.map((p) => ({ value: p.id, label: `${p.name} — ${p.categoryLabel}` }))
+      : MAPPABLE_CATEGORIES.map((c) => ({ value: c.id, label: c.label }));
 
   return (
     <section className="bg-white dark:bg-white/[0.02] border border-zinc-200 dark:border-white/10 rounded-2xl p-5 shadow-sm space-y-4">
@@ -199,8 +229,7 @@ export default function SupplierManager() {
             Supplier / Tukang Sayur
           </h2>
           <p className="text-xs text-zinc-500 mt-1">
-            Saat order masuk, tiap item dikirim ke nomor supplier-nya. Pemetaan produk didahulukan;
-            kalau tidak ada, dipakai pemetaan kategori.
+            1 supplier bisa punya banyak mapping. Saat order masuk, item yang cocok dikirim ke nomor WA supplier.
           </p>
         </div>
         <button
@@ -275,69 +304,50 @@ export default function SupplierManager() {
             </div>
           </div>
 
-          <fieldset className="space-y-1.5">
-            <legend className="text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1">
-              Jenis Pemetaan *
+          {/* Mappings */}
+          <fieldset className="space-y-2">
+            <legend className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
+              Pemetaan Produk / Kategori *
             </legend>
-            <div className="grid grid-cols-2 gap-2">
-              {(
-                [
-                  { id: 'product', label: 'Per Produk', desc: 'Satu produk tertentu', icon: Package },
-                  { id: 'category', label: 'Per Kategori', desc: 'Semua produk kategori', icon: Layers },
-                ] as const
-              ).map((opt) => {
-                const Icon = opt.icon;
-                const active = form.mapping_type === opt.id;
-                return (
+            {form.mappings.map((m, idx) => (
+              <div key={idx} className="flex items-center gap-2 flex-wrap">
+                <select
+                  value={m.mapping_type}
+                  onChange={(e) => updateMapping(idx, { mapping_type: e.target.value as 'product' | 'category' })}
+                  className="p-2.5 bg-white dark:bg-white/[0.04] border border-zinc-200 dark:border-white/15 rounded-xl text-xs focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="product">Per Produk</option>
+                  <option value="category">Per Kategori</option>
+                </select>
+                <select
+                  value={m.ref_id}
+                  onChange={(e) => updateMapping(idx, { ref_id: e.target.value })}
+                  className="flex-1 min-w-[180px] p-2.5 bg-white dark:bg-white/[0.04] border border-zinc-200 dark:border-white/15 rounded-xl text-xs focus:outline-none focus:border-emerald-500"
+                >
+                  {refOptionsFor(m.mapping_type).map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+                {form.mappings.length > 1 && (
                   <button
-                    key={opt.id}
                     type="button"
-                    onClick={() =>
-                      setForm({
-                        ...form,
-                        mapping_type: opt.id,
-                        ref_id:
-                          opt.id === 'product'
-                            ? PRODUCTS[0]?.id ?? ''
-                            : MAPPABLE_CATEGORIES[0]?.id ?? '',
-                      })
-                    }
-                    aria-pressed={active}
-                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                      active
-                        ? 'bg-emerald-50 dark:bg-emerald-500/20 border-emerald-500 text-zinc-900 dark:text-white'
-                        : 'bg-white dark:bg-white/[0.03] border-zinc-200 dark:border-white/10 text-zinc-500 dark:text-zinc-400'
-                    }`}
+                    onClick={() => removeMapping(idx)}
+                    className="p-2 text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
+                    title="Hapus mapping ini"
                   >
-                    <Icon
-                      className={`w-4 h-4 mb-1.5 ${active ? 'text-emerald-600 dark:text-emerald-400' : ''}`}
-                    />
-                    <div className="text-xs font-bold">{opt.label}</div>
-                    <div className="text-[10px] text-zinc-500">{opt.desc}</div>
+                    <Trash2 className="w-3.5 h-3.5" />
                   </button>
-                );
-              })}
-            </div>
-          </fieldset>
-
-          <div className="space-y-1">
-            <label htmlFor="sup-ref" className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
-              {form.mapping_type === 'product' ? 'Produk' : 'Kategori'} Target *
-            </label>
-            <select
-              id="sup-ref"
-              required
-              value={form.ref_id}
-              onChange={(e) => setForm({ ...form, ref_id: e.target.value })}
-              className="w-full p-2.5 bg-white dark:bg-white/[0.04] border border-zinc-200 dark:border-white/15 rounded-xl text-xs focus:outline-none focus:border-emerald-500"
+                )}
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addMapping}
+              className="px-3 py-1.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
             >
-              {refOptions.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </div>
+              <Plus className="w-3 h-3" /> Tambah Mapping
+            </button>
+          </fieldset>
 
           <label className="flex items-center gap-2 text-xs text-zinc-700 dark:text-zinc-300 cursor-pointer">
             <input
@@ -378,83 +388,69 @@ export default function SupplierManager() {
           </p>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm whitespace-nowrap">
-            <thead className="bg-zinc-50 dark:bg-white/[0.04] text-zinc-500 dark:text-zinc-400">
-              <tr>
-                <th className="px-4 py-3 font-medium rounded-l-xl">Supplier</th>
-                <th className="px-4 py-3 font-medium">Target</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium text-right rounded-r-xl">Aksi</th>
-              </tr>
-            </thead>
-            <tbody>
-              {suppliers.map((s) => (
-                <tr
-                  key={s.id}
-                  className="border-b border-zinc-100 dark:border-white/5 last:border-0 hover:bg-zinc-50 dark:hover:bg-white/[0.02]"
-                >
-                  <td className="px-4 py-3">
-                    <div className="font-bold">{s.name}</div>
-                    <div className="text-xs text-zinc-500 font-mono">{s.phone}</div>
-                  </td>
-                  <td className="px-4 py-3">
+        <div className="space-y-2">
+          {suppliers.map((s) => (
+            <div
+              key={s.id}
+              className="flex items-start justify-between gap-3 p-3 rounded-xl border border-zinc-100 dark:border-white/5 hover:bg-zinc-50 dark:hover:bg-white/[0.02] transition-colors"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-bold text-sm">{s.name}</span>
+                  <span
+                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                      s.active === 1
+                        ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300'
+                        : 'bg-zinc-100 dark:bg-white/5 text-zinc-400'
+                    }`}
+                  >
+                    {s.active === 1 ? 'Aktif' : 'Off'}
+                  </span>
+                </div>
+                <div className="text-xs text-zinc-500 font-mono mt-0.5">{s.phone}</div>
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {s.mappings.map((m, i) => (
                     <span
+                      key={i}
                       className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md ${
-                        s.mapping_type === 'product'
+                        m.mapping_type === 'product'
                           ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300'
                           : 'bg-teal-100 dark:bg-teal-500/20 text-teal-700 dark:text-teal-300'
                       }`}
                     >
-                      {s.mapping_type === 'product' ? (
-                        <Package className="w-2.5 h-2.5" />
-                      ) : (
-                        <Layers className="w-2.5 h-2.5" />
-                      )}
-                      {s.mapping_type === 'product' ? 'Produk' : 'Kategori'}
+                      {m.mapping_type === 'product' ? <Package className="w-2.5 h-2.5" /> : <Layers className="w-2.5 h-2.5" />}
+                      {refLabel(m.mapping_type, m.ref_id)}
                     </span>
-                    <div className="text-xs text-zinc-600 dark:text-zinc-400 mt-1">{targetLabel(s)}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`text-[11px] font-bold ${
-                        s.active === 1 ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-400'
-                      }`}
-                    >
-                      {s.active === 1 ? 'Aktif' : 'Nonaktif'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="inline-flex gap-1">
-                      <button
-                        onClick={() => toggleActive(s)}
-                        disabled={busy}
-                        className="p-2 text-zinc-400 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded-lg transition-colors cursor-pointer disabled:opacity-40"
-                        title={s.active === 1 ? 'Nonaktifkan' : 'Aktifkan'}
-                      >
-                        <Power className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => openEdit(s)}
-                        className="p-2 text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
-                        title="Edit"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => remove(s)}
-                        disabled={busy}
-                        className="p-2 text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer disabled:opacity-40"
-                        title="Hapus"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  ))}
+                </div>
+              </div>
+              <div className="flex gap-1 shrink-0">
+                <button
+                  onClick={() => toggleActive(s)}
+                  disabled={busy}
+                  className="p-2 text-zinc-400 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded-lg transition-colors cursor-pointer disabled:opacity-40"
+                  title={s.active === 1 ? 'Nonaktifkan' : 'Aktifkan'}
+                >
+                  <Power className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => openEdit(s)}
+                  className="p-2 text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+                  title="Edit"
+                >
+                  <Pencil className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => remove(s)}
+                  disabled={busy}
+                  className="p-2 text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer disabled:opacity-40"
+                  title="Hapus"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -465,7 +461,7 @@ export default function SupplierManager() {
             {unmappedProducts.length} produk belum punya supplier
           </div>
           <p className="text-amber-700/80 dark:text-amber-200/80">
-            Order yang berisi produk ini tetap masuk, tapi tidak ada notifikasi WhatsApp yang dikirim:
+            Order yang berisi produk ini tetap masuk, tapi tidak ada notifikasi WA dikirim:
           </p>
           <p className="text-amber-800 dark:text-amber-200">
             {unmappedProducts.map((p) => p.name).join(', ')}
