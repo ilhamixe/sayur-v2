@@ -96,58 +96,12 @@ export default function CheckoutModal({
     const randomId = 'SS-' + Math.floor(100000 + Math.random() * 900000);
     setOrderNumber(randomId);
 
-    // Format WhatsApp message
-    let message = `*PESANAN SAYUR SUKABUMI (#${randomId})*\n\n`;
-    message += `👤 *Nama:* ${name.trim()}\n`;
-    message += `📱 *No WA:* ${phone.trim()}\n`;
-    message += `📍 *Alamat:* ${address.trim()}\n`;
-    message += `🏙️ *Kota Tujuan:* ${shippingInfo.name}\n`;
-    message += `⏰ *Slot Antar:* ${getSlotLabel(selectedDeliverySlot)}\n`;
-    if (notes.trim()) message += `📝 *Catatan:* ${notes.trim()}\n`;
-    message += `💳 *Pembayaran:* ${paymentMethod.toUpperCase()}\n\n`;
-
-    message += `*DAFTAR SAYURAN & PESANAN:*\n`;
-    cart.forEach((item, index) => {
-      message += `${index + 1}. ${item.product.name} (${item.quantity}x @${formatRupiah(item.product.price)}) = ${formatRupiah(item.product.price * item.quantity)}\n`;
-    });
-
-    message += `\nSubtotal: ${formatRupiah(subtotal)}`;
-    if (appliedVoucher) {
-      message += `\nDiskon Voucher (${appliedVoucher.code}): -${formatRupiah(discountAmount)}`;
-    }
-    message += `\nOngkos Kirim: ${shippingCost === 0 ? 'GRATIS' : formatRupiah(shippingCost)}`;
-    message += `\n*TOTAL PEMBAYARAN: ${formatRupiah(grandTotal)}*\n\n`;
-    message += `Mohon konfirmasi pesanan dan ketersediaan kurir. Terima kasih Sayur Sukabumi! 🌱`;
-
-    const encodedMessage = encodeURIComponent(message);
-    
-    // Read Admin WhatsApp from localStorage, fallback to default if not set
-    const savedAdminPhone = localStorage.getItem('adminWhatsApp') || '6281234567890';
-    const cleanAdminPhone = savedAdminPhone.replace(/\D/g, ''); // Remove non-numeric characters
-    const waUrl = `https://wa.me/${cleanAdminPhone}?text=${encodedMessage}`;
-
-    // Save order to localStorage for Admin Dashboard
-    const currentOrders = JSON.parse(localStorage.getItem('sayur_orders') || '[]');
-    currentOrders.push({
-      id: randomId,
-      date: new Date().toISOString(),
-      customer: name.trim(),
-      phone: phone.trim(),
-      address: address.trim(),
-      total: grandTotal,
-      status: 'pending'
-    });
-    localStorage.setItem('sayur_orders', JSON.stringify(currentOrders));
-
     // Trigger celebration & success
     try {
       confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
     } catch {}
 
     setIsSuccess(true);
-    // Dibuka sebelum await apa pun — window.open setelah await diblokir browser
-    // karena kehilangan konteks klik pengguna.
-    window.open(waUrl, '_blank');
 
     // Teruskan item ke supplier masing-masing lewat wa-notify. Gagal di sini
     // tidak boleh membatalkan order — pelanggan tetap dapat link WhatsApp CS.
@@ -160,8 +114,11 @@ export default function CheckoutModal({
           orderId: randomId,
           customerName: name.trim(),
           customerPhone: phone.trim(),
+          address: address.trim(),
           note: notes.trim(),
           deliverySlot: getSlotLabel(selectedDeliverySlot),
+          paymentMethod,
+          total: grandTotal,
           items: cart.map((item) => ({
             productId: item.product.id,
             category: item.product.category,
