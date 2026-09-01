@@ -95,7 +95,9 @@ export default function AdminDashboard() {
   const [isSaved, setIsSaved] = useState(false);
 
   useEffect(() => {
-    fetch('/api/admin/check').then(() => setAuthed(true)).catch(() => setAuthed(false));
+    fetch('/api/admin/check')
+      .then((res) => { if (res.ok) setAuthed(true); else setAuthed(false); })
+      .catch(() => setAuthed(false));
   }, []);
 
   useEffect(() => {
