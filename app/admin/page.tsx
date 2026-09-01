@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Settings, ShoppingBag, Save, CheckCircle2, Trash2 } from 'lucide-react';
+import { ArrowLeft, Settings, ShoppingBag, Save, CheckCircle2, Trash2, Lock, LogOut } from 'lucide-react';
 import SupplierManager from '../components/SupplierManager';
 import WaConnection from '../components/WaConnection';
 import NotifyLog from '../components/NotifyLog';
@@ -17,19 +17,99 @@ interface Order {
   status: string;
 }
 
+function LoginForm({ onLogin }: { onLogin: () => void }) {
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      });
+      if (!res.ok) {
+        setError('Password salah');
+        setLoading(false);
+        return;
+      }
+      onLogin();
+    } catch {
+      setError('Gagal menghubungi server');
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-zinc-50 dark:bg-[#09090b] flex items-center justify-center p-4">
+      <div className="w-full max-w-sm">
+        <div className="text-center mb-8">
+          <div className="w-16 h-16 rounded-2xl bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-emerald-500/10">
+            <Lock className="w-8 h-8" />
+          </div>
+          <h1 className="text-2xl font-black text-zinc-900 dark:text-white">Dashboard Admin</h1>
+          <p className="text-sm text-zinc-500 mt-1">Masukkan password untuk melanjutkan</p>
+        </div>
+        <form onSubmit={handleSubmit} className="bg-white dark:bg-white/[0.02] border border-zinc-200 dark:border-white/10 rounded-2xl p-6 shadow-sm space-y-4">
+          <div>
+            <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 block">Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              autoFocus
+              className="w-full p-3 bg-zinc-50 dark:bg-white/[0.04] border border-zinc-200 dark:border-white/10 rounded-xl text-sm focus:outline-none focus:border-emerald-500 transition-colors"
+              required
+            />
+          </div>
+          {error && (
+            <p className="text-xs font-bold text-red-500 bg-red-50 dark:bg-red-500/10 px-3 py-2 rounded-lg">{error}</p>
+          )}
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white font-bold rounded-xl transition-colors"
+          >
+            {loading ? 'Memproses...' : 'Masuk'}
+          </button>
+        </form>
+        <div className="text-center mt-4">
+          <Link href="/" className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors">
+            ← Kembali ke Beranda
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminDashboard() {
+  const [authed, setAuthed] = useState<boolean | null>(null);
   const [waNumber, setWaNumber] = useState('');
   const [orders, setOrders] = useState<Order[]>([]);
   const [isSaved, setIsSaved] = useState(false);
 
   useEffect(() => {
-    // Load config & data from localStorage
+    fetch('/api/admin/check').then(() => setAuthed(true)).catch(() => setAuthed(false));
+  }, []);
+
+  useEffect(() => {
+    if (!authed) return;
     const savedWa = localStorage.getItem('adminWhatsApp');
     if (savedWa) setWaNumber(savedWa);
-
     const savedOrders = JSON.parse(localStorage.getItem('sayur_orders') || '[]');
-    setOrders(savedOrders.reverse()); // Newest first
-  }, []);
+    setOrders(savedOrders.reverse());
+  }, [authed]);
+
+  const handleLogout = async () => {
+    await fetch('/api/admin/logout', { method: 'POST' });
+    setAuthed(false);
+  };
 
   const handleSaveWa = (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,7 +129,7 @@ export default function AdminDashboard() {
     if (!confirm('Yakin ingin menghapus SEMUA pesanan?')) return;
     setOrders([]);
     localStorage.setItem('sayur_orders', '[]');
-  }
+  };
 
   const formatRupiah = (amount: number) => {
     return new Intl.NumberFormat('id-ID', {
@@ -58,6 +138,18 @@ export default function AdminDashboard() {
       minimumFractionDigits: 0
     }).format(amount);
   };
+
+  if (authed === null) {
+    return (
+      <div className="min-h-screen bg-zinc-50 dark:bg-[#09090b] flex items-center justify-center">
+        <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!authed) {
+    return <LoginForm onLogin={() => setAuthed(true)} />;
+  }
 
   const totalRevenue = orders.reduce((sum, order) => sum + order.total, 0);
 
@@ -79,6 +171,13 @@ export default function AdminDashboard() {
               <p className="text-xs text-zinc-500">Kelola toko Sayur Sukabumi Anda</p>
             </div>
           </div>
+          <button
+            onClick={handleLogout}
+            className="p-2 text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-colors"
+            title="Logout"
+          >
+            <LogOut className="w-5 h-5" />
+          </button>
         </div>
 
         {/* Top Stats */}
