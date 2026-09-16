@@ -11,7 +11,7 @@ import CheckoutModal from './components/CheckoutModal';
 import FarmStory from './components/FarmStory';
 import RecipeSection from './components/RecipeSection';
 import Footer from './components/Footer';
-import { CATEGORIES, PRODUCTS, RECIPES, TESTIMONIALS, VOUCHERS } from './data/products';
+import { CATEGORIES, RECIPES, TESTIMONIALS, fetchProducts, fetchVouchers } from './data/products';
 import type { CartItem, Product, Recipe, Voucher } from './types';
 
 const CATEGORY_ICONS: Record<string, React.ElementType> = {
@@ -38,6 +38,14 @@ export default function Page() {
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [vouchers, setVouchers] = useState<Voucher[]>([]);
+
+  // Fetch produk aktif dari API
+  useEffect(() => {
+    fetchProducts().then(setProducts);
+    fetchVouchers().then(setVouchers);
+  }, []);
 
   // Restore keranjang dari localStorage (simpan id+qty saja, produk dibaca ulang
   // dari katalog supaya harga/stok selalu versi terbaru).
@@ -47,7 +55,7 @@ export default function Page() {
       const saved: { id: string; quantity: number }[] = raw ? JSON.parse(raw) : [];
       const restored = saved
         .map(({ id, quantity }) => {
-          const product = PRODUCTS.find((p) => p.id === id);
+          const product = products.find((p) => p.id === id);
           if (!product) return null;
           return { product, quantity: Math.min(Math.max(1, quantity), product.stock) };
         })
@@ -78,7 +86,8 @@ export default function Page() {
 
   const filteredProducts = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    return PRODUCTS.filter((p) => {
+    return products.filter((p) => {
+      if (p.active === false) return false;
       const matchCategory =
         activeCategory === 'all' ||
         (activeCategory === 'organik' ? p.isOrganic === true : p.category === activeCategory);
@@ -91,7 +100,7 @@ export default function Page() {
         p.description.toLowerCase().includes(q)
       );
     });
-  }, [searchQuery, activeCategory]);
+  }, [searchQuery, activeCategory, products]);
 
   const addToCart = useCallback(
     (product: Product, quantity = 1) => {
@@ -142,7 +151,7 @@ export default function Page() {
 
   const handleApplyVoucherCode = useCallback(
     (code: string) => {
-      const found = VOUCHERS.find((v) => v.code === code);
+      const found = vouchers.find((v) => v.code === code);
       if (!found) return;
       if (subtotal < found.minSpend) {
         showToast(
@@ -154,7 +163,7 @@ export default function Page() {
       setAppliedVoucher(found);
       showToast(`Voucher ${found.code} aktif — diskon ${found.discountPercent}%`);
     },
-    [subtotal, showToast]
+    [subtotal, showToast, vouchers]
   );
 
   const handleQuickCategory = useCallback((categoryId: string) => {
@@ -165,7 +174,7 @@ export default function Page() {
   const handleAddRecipeIngredients = useCallback(
     (recipe: Recipe) => {
       const matched = recipe.ingredients
-        .map((ing) => (ing.productMatchId ? PRODUCTS.find((p) => p.id === ing.productMatchId) : null))
+        .map((ing) => (ing.productMatchId ? products.find((p) => p.id === ing.productMatchId) : null))
         .filter((p): p is Product => Boolean(p));
 
       if (!matched.length) {
@@ -209,7 +218,7 @@ export default function Page() {
         onChangeCity={setSelectedCity}
       />
 
-      <Hero onQuickCategoryClick={handleQuickCategory} onApplyVoucherClick={handleApplyVoucherCode} />
+      <Hero onQuickCategoryClick={handleQuickCategory} onApplyVoucherClick={handleApplyVoucherCode} vouchers={vouchers} />
 
       <section id="katalog" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-4 scroll-mt-24">
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 mb-5">

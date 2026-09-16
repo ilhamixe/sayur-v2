@@ -11,6 +11,12 @@ const nextConfig = {
         port: '',
         pathname: '/**',
       },
+      {
+        protocol: 'https',
+        hostname: 'sayur-v2.kohipahit.web.id',
+        port: '',
+        pathname: '/uploads/**',
+      },
     ],
   },
   headers: async () => [

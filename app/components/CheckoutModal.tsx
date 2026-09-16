@@ -20,6 +20,7 @@ import {
   Users
 } from 'lucide-react';
 import { SHIPPING_RATES } from '../data/products';
+import MapPicker from './MapPicker';
 
 
 interface CheckoutModalProps {
@@ -53,6 +54,44 @@ export default function CheckoutModal({
   const [notifyState, setNotifyState] = useState<'idle' | 'sending' | 'ok' | 'error'>('idle');
   const [notifyResult, setNotifyResult] = useState<{ queued: number; unmapped: string[] } | null>(null);
   const [notifyError, setNotifyError] = useState<string | null>(null);
+  const [mapLat, setMapLat] = useState<number | null>(null);
+  const [mapLng, setMapLng] = useState<number | null>(null);
+  const [withinRadius, setWithinRadius] = useState(true);
+  const [payMethods, setPayMethods] = useState({ qris: true, transfer: true, cod: true });
+  const [qrisImage, setQrisImage] = useState('');
+
+  const OUTSIDE_AREA_FEE = 10000;
+
+  // Fetch payment settings on open
+  React.useEffect(() => {
+    if (!isOpen) return;
+    fetch('/api/settings')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.settings) {
+          setPayMethods({
+            qris: data.settings.payment_qris !== '0',
+            transfer: data.settings.payment_transfer !== '0',
+            cod: data.settings.payment_cod !== '0',
+          });
+          setQrisImage(data.settings.payment_qris_image || '');
+        }
+      })
+      .catch(() => {});
+  }, [isOpen]);
+
+  // Auto-switch payment method if current becomes unavailable
+  React.useEffect(() => {
+    const available = {
+      qris: payMethods.qris,
+      transfer: payMethods.transfer,
+      cod: payMethods.cod && withinRadius,
+    };
+    if (!available[paymentMethod]) {
+      const firstAvailable = (['transfer', 'qris', 'cod'] as const).find((m) => available[m]);
+      if (firstAvailable) setPaymentMethod(firstAvailable);
+    }
+  }, [withinRadius, payMethods, paymentMethod]);
 
   if (!isOpen) return null;
 
@@ -67,8 +106,9 @@ export default function CheckoutModal({
   const subtotal = cart.reduce((acc, item) => acc + (item.product.price * item.quantity), 0);
   const shippingInfo = SHIPPING_RATES[selectedCity] || SHIPPING_RATES['sukabumi_kota'];
   const shippingCost = subtotal >= 100000 && selectedCity === 'sukabumi_kota' ? 0 : shippingInfo.cost;
+  const outsideFee = withinRadius ? 0 : OUTSIDE_AREA_FEE;
   const discountAmount = appliedVoucher ? (subtotal * appliedVoucher.discountPercent) / 100 : 0;
-  const grandTotal = Math.max(0, subtotal - discountAmount + shippingCost);
+  const grandTotal = Math.max(0, subtotal - discountAmount + shippingCost + outsideFee);
 
   const getSlotLabel = (slot: string) => {
     switch (slot) {
@@ -119,6 +159,8 @@ export default function CheckoutModal({
           deliverySlot: getSlotLabel(selectedDeliverySlot),
           paymentMethod,
           total: grandTotal,
+          lat: mapLat,
+          lng: mapLng,
           items: cart.map((item) => ({
             productId: item.product.id,
             category: item.product.category,
@@ -209,7 +251,11 @@ export default function CheckoutModal({
 
                 {paymentMethod === 'qris' && (
                   <div className="flex flex-col items-center p-3 rounded-xl bg-white text-zinc-950 text-center space-y-2 border border-zinc-200 dark:border-transparent">
-                    <QrCode className="w-24 h-24 text-zinc-900" />
+                    {qrisImage ? (
+                      <img src={qrisImage} alt="QRIS" className="w-48 h-48 object-contain rounded-lg" />
+                    ) : (
+                      <QrCode className="w-24 h-24 text-zinc-900" />
+                    )}
                     <div className="text-xs font-bold">Scan QRIS Sayur Sukabumi</div>
                     <div className="text-xs text-zinc-600">Total: <strong>{formatRupiah(grandTotal)}</strong></div>
                   </div>
@@ -348,6 +394,8 @@ export default function CheckoutModal({
                     className="w-full p-2.5 bg-white dark:bg-white/[0.04] border border-zinc-200 dark:border-white/15 rounded-xl text-xs text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none focus:border-emerald-500 transition-colors shadow-sm dark:shadow-none"
                   />
                 </div>
+
+                <MapPicker lat={mapLat} lng={mapLng} onChange={(la, ln) => { setMapLat(la); setMapLng(ln); }} onDistanceChange={(_km, ok) => setWithinRadius(ok)} />
               </div>
 
               {/* Payment Method Selector */}
@@ -358,10 +406,10 @@ export default function CheckoutModal({
 
                 <div className="grid grid-cols-3 gap-2">
                   {[
-                    { id: 'qris', label: 'QRIS Instan', icon: QrCode, desc: 'BCA/Gopay/Shopee' },
-                    { id: 'transfer', label: 'Transfer Bank', icon: CreditCard, desc: 'BCA/Mandiri/BRI' },
-                    { id: 'cod', label: 'COD (Bayar di Tempat)', icon: Banknote, desc: 'Bayar saat sayur tiba' }
-                  ].map((p) => {
+                    { id: 'qris', label: 'QRIS Instan', icon: QrCode, desc: 'BCA/Gopay/Shopee', enabled: payMethods.qris },
+                    { id: 'transfer', label: 'Transfer Bank', icon: CreditCard, desc: 'BCA/Mandiri/BRI', enabled: payMethods.transfer },
+                    { id: 'cod', label: 'COD (Bayar di Tempat)', icon: Banknote, desc: 'Bayar saat sayur tiba', enabled: payMethods.cod && withinRadius },
+                  ].filter((p) => p.enabled).map((p) => {
                     const Icon = p.icon;
                     return (
                       <button
@@ -395,6 +443,12 @@ export default function CheckoutModal({
                   <span>Ongkos Kirim ({shippingInfo.name.split(' ')[0]}):</span>
                   <span>{shippingCost === 0 ? <strong className="text-emerald-600 dark:text-emerald-400">GRATIS</strong> : formatRupiah(shippingCost)}</span>
                 </div>
+                {!withinRadius && (
+                  <div className="flex justify-between text-xs text-amber-600 dark:text-amber-400">
+                    <span>Biaya Luar Area:</span>
+                    <span>+{formatRupiah(OUTSIDE_AREA_FEE)}</span>
+                  </div>
+                )}
                 {appliedVoucher && (
                   <div className="flex justify-between text-xs text-emerald-600 dark:text-emerald-400">
                     <span>Diskon Voucher ({appliedVoucher.code}):</span>

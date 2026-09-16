@@ -17,6 +17,7 @@ export interface Product {
   benefits: string[];
   storageTips: string;
   isOrganic?: boolean;
+  active?: boolean;
 }
 
 export interface CartItem {
@@ -53,8 +54,13 @@ export interface CustomerTestimonial {
 }
 
 export interface Voucher {
+  id: number;
   code: string;
   discountPercent: number;
   minSpend: number;
   description: string;
+  active?: boolean;
+  maxUses?: number;
+  usedCount?: number;
+  expiresAt?: string | null;
 }

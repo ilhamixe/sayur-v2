@@ -1,5 +1,39 @@
 import { Product, Recipe, CustomerTestimonial, Voucher } from '../types';
 
+/** Fetch active products from API */
+export async function fetchProducts(): Promise<Product[]> {
+  try {
+    const res = await fetch('/api/products', { cache: 'no-store' });
+    const data = await res.json();
+    if (res.ok && data.products?.length > 0) {
+      return data.products
+        .filter((p: Record<string, unknown>) => p.active === 1 || p.active === undefined)
+        .map((p: Record<string, unknown>) => ({
+          id: p.slug || String(p.id),
+          name: p.name,
+          category: p.category,
+          categoryLabel: p.category_label,
+          price: p.price,
+          originalPrice: p.original_price,
+          unit: p.unit,
+          weightGrams: p.weight_grams,
+          stock: p.stock,
+          rating: p.rating,
+          reviewsCount: p.reviews_count,
+          image: p.image,
+          badge: p.badge || undefined,
+          origin: p.origin,
+          description: p.description,
+          benefits: typeof p.benefits === 'string' ? JSON.parse(p.benefits) : (p.benefits || []),
+          storageTips: p.storage_tips,
+          isOrganic: !!p.is_organic,
+          active: !!p.active,
+        }));
+    }
+  } catch {}
+  return [];
+}
+
 export const CATEGORIES = [
   { id: 'all', label: 'Semua Produk', icon: 'Sparkles' },
   { id: 'daun', label: 'Sayuran Daun Hijau', icon: 'Salad' },
@@ -388,11 +422,31 @@ export const TESTIMONIALS: CustomerTestimonial[] = [
   }
 ];
 
-export const VOUCHERS: Voucher[] = [
-  { code: 'SEGARHEMAT', discountPercent: 15, minSpend: 50000, description: 'Diskon 15% untuk belanja minimal Rp 50.000' },
-  { code: 'SUKABUMIBERKAH', discountPercent: 20, minSpend: 100000, description: 'Diskon 20% untuk belanja minimal Rp 100.000' },
-  { code: 'PETANILOKAL', discountPercent: 10, minSpend: 30000, description: 'Diskon 10% apresiasi petani lokal Sukabumi' }
-];
+/** Fetch active vouchers from API */
+export async function fetchVouchers(): Promise<Voucher[]> {
+  try {
+    const res = await fetch('/api/vouchers', { cache: 'no-store' });
+    const data = await res.json();
+    if (res.ok && data.vouchers?.length > 0) {
+      return data.vouchers
+        .filter((v: Record<string, unknown>) => v.active === 1 || v.active === undefined)
+        .map((v: Record<string, unknown>) => ({
+          id: v.id as number,
+          code: v.code as string,
+          discountPercent: v.discount_percent as number,
+          minSpend: v.min_spend as number,
+          description: v.description as string,
+          active: v.active === 1,
+          maxUses: v.max_uses as number,
+          usedCount: v.used_count as number,
+          expiresAt: v.expires_at as string | null,
+        }));
+    }
+  } catch {}
+  return [];
+}
+
+export const VOUCHERS: Voucher[] = [];
 
 export const SHIPPING_RATES: Record<string, { name: string; cost: number; estTime: string }> = {
   sukabumi_kota: { name: 'Sukabumi (Kota)', cost: 0, estTime: '2-4 Jam (Kurir Toko)' },

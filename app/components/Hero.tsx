@@ -9,13 +9,17 @@ import {
   ArrowRight,
   Tag
 } from 'lucide-react';
+import { Voucher } from '../types';
 
 interface HeroProps {
   onQuickCategoryClick: (categoryId: string) => void;
   onApplyVoucherClick: (code: string) => void;
+  vouchers?: Voucher[];
 }
 
-export default function Hero({ onQuickCategoryClick, onApplyVoucherClick }: HeroProps) {
+export default function Hero({ onQuickCategoryClick, onApplyVoucherClick, vouchers = [] }: HeroProps) {
+  const featuredVoucher = vouchers.length > 0 ? vouchers[0] : null;
+
   return (
     <section className="relative overflow-hidden pt-6 pb-12">
       {/* Background ambient lighting */}
@@ -66,24 +70,26 @@ export default function Hero({ onQuickCategoryClick, onApplyVoucherClick }: Hero
                 </div>
               </div>
 
-              {/* Voucher Clip Bar */}
-              <div className="p-3 sm:p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 backdrop-blur-md">
-                <div className="flex items-center gap-2.5">
-                  <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400">
-                    <Tag className="w-4 h-4" />
+              {/* Voucher Clip Bar - Dynamic */}
+              {featuredVoucher && (
+                <div className="p-3 sm:p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 backdrop-blur-md">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400">
+                      <Tag className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-emerald-300">VOUCHER SPESIAL: {featuredVoucher.code}</div>
+                      <div className="text-[11px] text-zinc-400">{featuredVoucher.description}</div>
+                    </div>
                   </div>
-                  <div>
-                    <div className="text-xs font-bold text-emerald-300">VOUCHER SPESIAL: SEGARHEMAT</div>
-                    <div className="text-[11px] text-zinc-400">Diskon 15% untuk semua produk sayuran hari ini</div>
-                  </div>
+                  <button
+                    onClick={() => onApplyVoucherClick(featuredVoucher.code)}
+                    className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 text-xs font-bold rounded-lg transition-all active:scale-95 cursor-pointer shadow-md shadow-emerald-500/20 whitespace-nowrap"
+                  >
+                    Klaim Voucher
+                  </button>
                 </div>
-                <button
-                  onClick={() => onApplyVoucherClick('SEGARHEMAT')}
-                  className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 text-xs font-bold rounded-lg transition-all active:scale-95 cursor-pointer shadow-md shadow-emerald-500/20 whitespace-nowrap"
-                >
-                  Klaim Voucher
-                </button>
-              </div>
+              )}
             </div>
 
             {/* Right Card / Visual Grid */}

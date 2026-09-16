@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CartItem, Voucher } from '../types';
 import { 
   X, 
@@ -15,7 +15,7 @@ import {
   Check,
   AlertCircle
 } from 'lucide-react';
-import { VOUCHERS, SHIPPING_RATES } from '../data/products';
+import { VOUCHERS, SHIPPING_RATES, fetchVouchers } from '../data/products';
 
 interface CartDrawerProps {
   isOpen: boolean;
@@ -50,6 +50,13 @@ export default function CartDrawer({
 }: CartDrawerProps) {
   const [voucherInput, setVoucherInput] = useState('');
   const [voucherError, setVoucherError] = useState('');
+  const [vouchers, setVouchers] = useState<Voucher[]>([]);
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchVouchers().then(setVouchers);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -72,7 +79,7 @@ export default function CartDrawer({
     e.preventDefault();
     setVoucherError('');
     const codeClean = voucherInput.trim().toUpperCase();
-    const found = VOUCHERS.find(v => v.code === codeClean);
+    const found = vouchers.find(v => v.code === codeClean);
 
     if (!found) {
       setVoucherError('Kode voucher tidak valid');
